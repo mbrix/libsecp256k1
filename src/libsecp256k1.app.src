@@ -1,0 +1,17 @@
+%% Copyright 2015, Matthew Branton
+%% Distributed under the MIT License under LICENSE
+%% https://github.com/bitcoin/secp256k1
+
+
+{application, libsecp256k1,
+ [
+  {description, "Erlang NIF bindings for the the libsecp256k1 library"},
+  {vsn, git},
+  {modules, []},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []}
+ ]}.
