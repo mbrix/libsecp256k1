@@ -1,0 +1,5 @@
+.rebar
+c_src/*.o
+c_src/secp256k1
+ebin
+priv/*.so
