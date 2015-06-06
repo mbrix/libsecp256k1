@@ -170,7 +170,7 @@ ec_pubkey_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	if (result == 1) {
 		return ok_result(env, &r);
 	} else {
-		return error(env, "Public key generation error");
+		return error_result(env, "Public key generation error");
 	}
 
 }
