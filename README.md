@@ -16,6 +16,4 @@ Check the test suite for more details
 Debugging
 ---------
 
-If you have trouble loading the NIF, make sure that the libsecp256k1 library is built under c_src, and the shared object file is there.
-
-Also check ldd priv/libsecp256k1_nif.so for library path resolutions.
+Library should be statically compiled.
