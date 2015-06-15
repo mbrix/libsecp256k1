@@ -198,7 +198,7 @@ ec_pubkey_decompress(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	decompressedkey = enif_make_new_binary(env, 65, &r);
 	memcpy(decompressedkey, pubkey.data, pubkeylen);
 	
-	if (secp256k1_ec_pubkey_decompress(ctx, decompressedkey, &pubkeylen) == 0) {
+	if (secp256k1_ec_pubkey_decompress(ctx, pubkey.data, decompressedkey, &pubkeylen) == 0) {
 		return enif_make_badarg(env);
 	}
 	return ok_result(env, &r);
