@@ -54,6 +54,13 @@ signing() ->
 	{ok, Signature} = libsecp256k1:ecdsa_sign(Msg, A, default, <<>>),
 	?assertEqual(ok, libsecp256k1:ecdsa_verify(Msg, Signature, Pubkey)).
 
+blank_msg() ->
+	Msg = <<>>,
+	A = crypto:rand_bytes(32),
+	{ok, Pubkey} = libsecp256k1:ec_pubkey_create(A, compressed),
+	{ok, Signature} = libsecp256k1:ecdsa_sign(Msg, A, default, <<>>),
+	?assertEqual(ok, libsecp256k1:ecdsa_verify(Msg, Signature, Pubkey)).
+
 compact_signing() ->
 	Msg = <<"This is a very secret compact message...">>,
 	A = crypto:rand_bytes(32),
@@ -72,6 +79,7 @@ secp235k1_test_() ->
 		{"Import export", fun import_export/0},
 		{"Curve tweaks", fun tweaks/0},
 		{"Signing", fun signing/0},
+		{"Blank sign", fun blank_msg/0},
 		{"Compact", fun compact_signing/0}
    ]
   }.
