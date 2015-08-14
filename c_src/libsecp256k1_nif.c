@@ -17,6 +17,7 @@ static ERL_NIF_TERM atom_from_result(ErlNifEnv* env, int res);
 static ERL_NIF_TERM error_result(ErlNifEnv* env, char* error_msg);
 static ERL_NIF_TERM ok_result(ErlNifEnv* env, ERL_NIF_TERM *r);
 int get_compressed_flag(ErlNifEnv* env, ERL_NIF_TERM arg, int* compressed, int* pubkeylen);
+int check_compressed(size_t Size);
 int get_nonce_function(ErlNifEnv* env, ERL_NIF_TERM nonce_term, ERL_NIF_TERM nonce_data_term, secp256k1_nonce_function_t* noncefp, ErlNifBinary* noncedata);
 int get_recid(ErlNifEnv* env, ERL_NIF_TERM argv, int* recid); 
 // Global context
@@ -152,6 +153,7 @@ ec_pubkey_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	ERL_NIF_TERM r;
 	unsigned char* pubkey_buf;
 	int pubkeylen, compressed;
+    secp256k1_pubkey_t pubkey;
 
 	if (!enif_inspect_binary(env, argv[0], &privkey)) {
        return enif_make_badarg(env);
@@ -166,9 +168,10 @@ ec_pubkey_create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	}
 
 	pubkey_buf = enif_make_new_binary(env, pubkeylen, &r);
-	result = secp256k1_ec_pubkey_create(ctx, pubkey_buf, &pubkeylen, privkey.data, compressed);
-	if (result == 1) {
-		return ok_result(env, &r);
+	result = secp256k1_ec_pubkey_create(ctx, &pubkey, privkey.data);
+	if (result == 1 && 
+			(secp256k1_ec_pubkey_serialize(ctx, pubkey_buf, &pubkeylen, &pubkey, compressed) == 1)) {
+			return ok_result(env, &r);
 	} else {
 		return error_result(env, "Public key generation error");
 	}
@@ -183,7 +186,8 @@ ec_pubkey_decompress(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	ErlNifBinary pubkey;
 	ERL_NIF_TERM r;
 	unsigned char* decompressedkey;
-	int pubkeylen;
+	int decompressedkeylen = 65;
+    secp256k1_pubkey_t pubkeyt;
 
 	if (!enif_inspect_binary(env, argv[0], &pubkey)) {
        return enif_make_badarg(env);
@@ -193,14 +197,16 @@ ec_pubkey_decompress(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 		return error_result(env, "Public key size != 33 or 65 bytes");
 	}
 
+	decompressedkey = enif_make_new_binary(env, decompressedkeylen, &r);
 
-	pubkeylen = pubkey.size;
-	decompressedkey = enif_make_new_binary(env, 65, &r);
-	memcpy(decompressedkey, pubkey.data, pubkeylen);
-	
-	if (secp256k1_ec_pubkey_decompress(ctx, pubkey.data, decompressedkey, &pubkeylen) == 0) {
-		return enif_make_badarg(env);
+	if (secp256k1_ec_pubkey_parse(ctx, &pubkeyt, pubkey.data, pubkey.size) != 1) {
+		return error_result(env, "Public key parse error");
 	}
+
+	if (secp256k1_ec_pubkey_serialize(ctx, decompressedkey, &decompressedkeylen, &pubkeyt, 0) != 1) {
+		return error_result(env, "Public key decompression error");
+	}
+	
 	return ok_result(env, &r);
 	
 }
@@ -210,6 +216,7 @@ ec_pubkey_verify(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
 	int result;
 	ErlNifBinary pubkey;
+    secp256k1_pubkey_t pubkeyt;
 	
 	if (!enif_inspect_binary(env, argv[0], &pubkey)) {
        return enif_make_badarg(env);
@@ -218,8 +225,8 @@ ec_pubkey_verify(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if ((pubkey.size != 33) && (pubkey.size != 65)) {
 		return error_result(env, "Public key size != 33 or 65 bytes");
 	}
-
-	result = secp256k1_ec_pubkey_verify(ctx, pubkey.data, pubkey.size);
+	
+	result = secp256k1_ec_pubkey_parse(ctx, &pubkeyt, pubkey.data, pubkey.size);
 	return atom_from_result(env, result); 
 }
 
@@ -311,7 +318,7 @@ ec_pubkey_tweak_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	ERL_NIF_TERM r;
 	ErlNifBinary pubkey, tweak;
 	unsigned char* pubkey_buf;
-	int result;
+    secp256k1_pubkey_t pubkeyt;
 
 	if (!enif_inspect_binary(env, argv[0], &pubkey)) {
        return enif_make_badarg(env);
@@ -322,15 +329,28 @@ ec_pubkey_tweak_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
     pubkey_buf = enif_make_new_binary(env, pubkey.size, &r); 
-	memcpy(pubkey_buf, pubkey.data, pubkey.size);
 
-	result = secp256k1_ec_pubkey_tweak_add(ctx, pubkey_buf, pubkey.size, tweak.data);
+	if (secp256k1_ec_pubkey_parse(ctx, &pubkeyt, pubkey.data, pubkey.size) != 1) {
+		return enif_make_badarg(env);
+	};
 
-	if (result == 0) {
+	if (secp256k1_ec_pubkey_tweak_add(ctx, &pubkeyt, tweak.data) != 1) {
 		return error_result(env, "ec_pubkey_tweak_add returned 0");
 	}
 
+	if (secp256k1_ec_pubkey_serialize(ctx, pubkey_buf, (int *)&pubkey.size, &pubkeyt,
+				check_compressed(pubkey.size)) != 1) {
+		return error_result(env, "Public key serialize error");
+	}
+	
 	return ok_result(env, &r);
+}
+
+int check_compressed(size_t Size) {
+	if (Size == 33) {
+		return 1;
+	}
+	return 0;
 }
 
 static ERL_NIF_TERM
@@ -368,7 +388,7 @@ ec_pubkey_tweak_mul(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	ERL_NIF_TERM r;
 	ErlNifBinary pubkey, tweak;
 	unsigned char* pubkey_buf;
-	int result;
+    secp256k1_pubkey_t pubkeyt;
 
 	if (!enif_inspect_binary(env, argv[0], &pubkey)) {
        return enif_make_badarg(env);
@@ -379,29 +399,35 @@ ec_pubkey_tweak_mul(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
     pubkey_buf = enif_make_new_binary(env, pubkey.size, &r); 
-	memcpy(pubkey_buf, pubkey.data, pubkey.size);
+	
+	if (secp256k1_ec_pubkey_parse(ctx, &pubkeyt, pubkey.data, pubkey.size) != 1) {
+		return enif_make_badarg(env);
+	};
 
-	result = secp256k1_ec_pubkey_tweak_mul(ctx, pubkey_buf, pubkey.size, tweak.data);
-
-	if (result == 0) {
+	if (secp256k1_ec_pubkey_tweak_mul(ctx, &pubkeyt, tweak.data) != 1) {
 		return error_result(env, "ec_pubkey_tweak_mul returned 0");
+	}
+
+	if (secp256k1_ec_pubkey_serialize(ctx, pubkey_buf, (int *)&pubkey.size, &pubkeyt,
+				check_compressed(pubkey.size)) != 1) {
+		return error_result(env, "Public key serialize error");
 	}
 
 	return ok_result(env, &r);
 
 }
 
-// Ecdsa Signing
-
+//// Ecdsa Signing
+//
 static ERL_NIF_TERM
 ecdsa_sign(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
 	ERL_NIF_TERM r;
 	ErlNifBinary message, privkey, noncedata;
 	int result;
-	unsigned char signature_buf[72];
-	int signaturelen = 72;
-	unsigned char* finished_signature_buf;
+    secp256k1_ecdsa_signature_t signature;
+	unsigned char* finishedsig;
+	int siglen = 74;
 
 	secp256k1_nonce_function_t noncefp;
 
@@ -417,12 +443,17 @@ ecdsa_sign(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 		return error_result(env, "Invalid nonce function name");
 	}
 
-	result = secp256k1_ecdsa_sign(ctx, message.data, signature_buf, &signaturelen, privkey.data, noncefp, noncedata.data);
+	result = secp256k1_ecdsa_sign(ctx, message.data, &signature,
+			privkey.data, noncefp, noncedata.data);
 	if (!result) {
 		return error_result(env, "ecdsa_sign returned 0");
 	}
-    finished_signature_buf = enif_make_new_binary(env, signaturelen, &r); 
-    memcpy(finished_signature_buf, signature_buf, signaturelen);
+	
+    finishedsig = enif_make_new_binary(env, siglen, &r); 
+	if (secp256k1_ecdsa_signature_serialize_der(ctx, finishedsig, &siglen, &signature) != 1) {
+		return error_result(env, "ecdsa_signature_serialize returned 0");
+	}
+
 	return ok_result(env, &r);
 
 }
@@ -430,22 +461,34 @@ ecdsa_sign(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 static ERL_NIF_TERM
 ecdsa_verify(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-	ErlNifBinary message, signature, pubkey;
+	ErlNifBinary message, rawsignature, rawpubkey;
+    secp256k1_ecdsa_signature_t signature;
+    secp256k1_pubkey_t pubkey;
 	int result;
 
 	if (!enif_inspect_binary(env, argv[0], &message)) {
        return enif_make_badarg(env);
     }
 
-	if (!enif_inspect_binary(env, argv[1], &signature)) {
+	if (!enif_inspect_binary(env, argv[1], &rawsignature)) {
        return enif_make_badarg(env);
     }
 
-	if (!enif_inspect_binary(env, argv[2], &pubkey)) {
+	if (!enif_inspect_binary(env, argv[2], &rawpubkey)) {
        return enif_make_badarg(env);
     }
 
-	result = secp256k1_ecdsa_verify(ctx, message.data, signature.data, signature.size, pubkey.data, pubkey.size);
+	// Parse serialized signature
+	if (secp256k1_ecdsa_signature_parse_der(ctx, &signature, rawsignature.data, rawsignature.size) != 1) {
+		return error_result(env, "ecdsa signature der parse error");
+	}
+	// Parse serialized public key
+	
+	if (secp256k1_ec_pubkey_parse(ctx, &pubkey, rawpubkey.data, rawpubkey.size) != 1) {
+		return error_result(env, "Public key invalid");
+	};
+
+	result = secp256k1_ecdsa_verify(ctx, message.data, &signature, &pubkey);
 
 	return atom_from_result(env, result);
 }
@@ -455,12 +498,13 @@ ecdsa_sign_compact(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
 	ERL_NIF_TERM r;
 	ErlNifBinary message, privkey, noncedata;
-	secp256k1_nonce_function_t noncefp;
-	unsigned char csignature[64];
-	unsigned char* finished_signature_buf;
 	int result;
+    secp256k1_ecdsa_signature_t signature;
+	unsigned char* finishedsig;
+	int siglen = 64;
 	int recid = 0;
-	
+
+	secp256k1_nonce_function_t noncefp;
 
 	if (!enif_inspect_binary(env, argv[0], &message)) {
        return enif_make_badarg(env);
@@ -471,17 +515,24 @@ ecdsa_sign_compact(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
     if (!get_nonce_function(env, argv[2], argv[3], &noncefp, &noncedata)) {
-		return error_result(env, "invalid nonce function name");
+		return error_result(env, "Invalid nonce function name");
 	}
 
-    result = secp256k1_ecdsa_sign_compact(ctx, message.data, csignature, privkey.data, noncefp, noncedata.data, &recid);
-
-    if (!result) {
-		return error_result(env, "ecdsa_sign_compact returned 0");
+	result = secp256k1_ecdsa_sign(ctx, message.data, &signature,
+			privkey.data, noncefp, noncedata.data);
+	if (!result) {
+		return error_result(env, "ecdsa_sign returned 0");
+	}
+	
+    finishedsig = enif_make_new_binary(env, siglen, &r); 
+	if (secp256k1_ecdsa_signature_serialize_compact(ctx, finishedsig, &recid, &signature) != 1) {
+		return error_result(env, "ecdsa_signature_serialize returned 0");
 	}
 
-    finished_signature_buf = enif_make_new_binary(env, 64, &r); 
-    memcpy(finished_signature_buf, csignature, 64);
+	if (recid == -1) {
+		return error_result(env, "invalid recovery id");
+	}
+
     return enif_make_tuple3(env, enif_make_atom(env, "ok"), r, enif_make_int(env, recid));
 
 }
@@ -493,9 +544,9 @@ ecdsa_recover_compact(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	ErlNifBinary message, csignature;
 	int result, pubkeylen, compressed;
 	int recid = 0;
-    unsigned char recpubkey[65];
     unsigned char* finished_recpubkey_buf;
-    int recpubkeylen = 0;
+    secp256k1_ecdsa_signature_t signature;
+    secp256k1_pubkey_t recpubkey;
 	
 	if (!enif_inspect_binary(env, argv[0], &message)) {
        return enif_make_badarg(env);
@@ -509,18 +560,38 @@ ecdsa_recover_compact(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 		return error_result(env, "Compression flag invalid");
 	}
 
+	if (compressed) {
+		pubkeylen = 33;
+	} else {
+		pubkeylen = 65;
+	}
+
 	if (!get_recid(env, argv[3], &recid)) {
 		return error_result(env, "Recovery id invalid 0-3");
 	}
-
-	result = secp256k1_ecdsa_recover_compact(ctx, message.data, csignature.data, recpubkey, &recpubkeylen, compressed, recid);
+	
+	result = secp256k1_ecdsa_signature_parse_compact(ctx, &signature, csignature.data, recid);
 
 	if (!result) {
-		return error_result(env, "ecdsa_recover_compact returned 0");
+		return error_result(env, "ecdsa_signature_parse_compact returned 0");
 	}
 
-	finished_recpubkey_buf = enif_make_new_binary(env, recpubkeylen, &r); 
-    memcpy(finished_recpubkey_buf, recpubkey, recpubkeylen);
+	// Now do ECDSA recovery
+	result = secp256k1_ecdsa_recover(ctx, message.data, &signature, &recpubkey);
+
+	if (!result) {
+	    return error_result(env, "ecdsa recovery problem");
+	}
+
+	// Now serialize recpubkey based on the compression flag
+	finished_recpubkey_buf = enif_make_new_binary(env, pubkeylen, &r); 
+
+	result = secp256k1_ec_pubkey_serialize(ctx, finished_recpubkey_buf,
+			&pubkeylen, &recpubkey, compressed);
+
+	if (!result) {
+		return error_result(env, "ecdsa pubkey serialize error");
+	}
 
     return ok_result(env, &r);
 
