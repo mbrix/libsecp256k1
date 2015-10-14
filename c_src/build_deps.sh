@@ -12,8 +12,8 @@ case "$1" in
   *)
   	test -f secp256k1/.libs/libsecp256k1.so && exit 0
 
-    (test -d secp256k1 || git clone  https://github.com/bitcoin/secp256k1)
+    (test -d secp256k1 || git clone https://github.com/bitcoin/secp256k1)
 
-	(cd secp256k1 && ./autogen.sh && ./configure && make)
+	(cd secp256k1 && git reset --hard 7450ef171db18361962ce1cabc5f3f233648789b &&  ./autogen.sh && ./configure --enable-module-recovery && make)
     ;;
 esac
