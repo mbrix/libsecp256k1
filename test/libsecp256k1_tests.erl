@@ -69,6 +69,12 @@ compact_signing() ->
 	{ok, RecoveredKey} = libsecp256k1:ecdsa_recover_compact(Msg, Signature, uncompressed, RecoveryID),
 	?assertEqual(Pubkey, RecoveredKey).
 
+sha256() ->
+	A = crypto:rand_bytes(64),
+	DoubleHashed = crypto:hash(sha256, crypto:hash(sha256, A)),
+	?assertEqual(DoubleHashed, libsecp256k1:sha256(libsecp256k1:sha256(A))),
+	?assertEqual(DoubleHashed, libsecp256k1:dsha256(A)).
+
 secp235k1_test_() -> 
   {foreach,
   fun start/0,
@@ -80,6 +86,7 @@ secp235k1_test_() ->
 		{"Curve tweaks", fun tweaks/0},
 		{"Signing", fun signing/0},
 		{"Blank sign", fun blank_msg/0},
-		{"Compact", fun compact_signing/0}
+		{"Compact", fun compact_signing/0},
+		{"Sha256", fun sha256/0}
    ]
   }.

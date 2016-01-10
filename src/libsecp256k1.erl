@@ -8,7 +8,8 @@
 -module(libsecp256k1).
 -author("mbranton@emberfinancial.com").
 
--export([sha256/1,
+-export([dsha256/1,
+		 sha256/1,
 		 hmac_sha256/2,
 		 rand32/0,
 		 rand256/0,
@@ -33,6 +34,9 @@
 -define(LIBNAME, libsecp256k1_nif).
 
 %% API
+
+dsha256(_) ->
+	not_loaded(?LINE).
 
 sha256(_) ->
     not_loaded(?LINE).

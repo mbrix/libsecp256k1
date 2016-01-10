@@ -44,6 +44,35 @@ unload(ErlNifEnv* env, void* priv)
     return;
 }
 
+// Double Sha256 Hash
+static ERL_NIF_TERM
+dsha256(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+	unsigned char* output;
+	ErlNifBinary p;
+	ERL_NIF_TERM r;
+
+	if (!enif_inspect_binary(env, argv[0], &p)) {
+       return enif_make_badarg(env);
+    }
+
+	// Create a NIF binary object with a 32 byte return
+	output = enif_make_new_binary(env, 32, &r);
+
+    secp256k1_sha256_t hasher;
+    secp256k1_sha256_initialize(&hasher);
+    secp256k1_sha256_write(&hasher, (const unsigned char*)(p.data), p.size);
+    secp256k1_sha256_finalize(&hasher, output);
+
+    secp256k1_sha256_t hasher2;
+    secp256k1_sha256_initialize(&hasher2);
+    secp256k1_sha256_write(&hasher2, (const unsigned char*)(output), 32);
+    secp256k1_sha256_finalize(&hasher2, output);
+
+    return r;
+}
+
+
 static ERL_NIF_TERM
 sha256(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -696,6 +725,7 @@ atom_from_result(ErlNifEnv* env, int res)
 }
 
 static ErlNifFunc nif_funcs[] = {
+	{"dsha256", 1, dsha256},
     {"sha256", 1, sha256},
 	{"hmac_sha256", 2, hmac_sha256},
 	{"rand32", 0, rand32},
