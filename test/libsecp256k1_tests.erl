@@ -16,7 +16,7 @@ stop(_) ->
 	ok.
 
 create_keys() ->
-	A = crypto:rand_bytes(32), %% Should use strong_rand in production
+	A = crypto:strong_rand_bytes(32), %% Should use strong_rand in production
 	{ok, B} = libsecp256k1:ec_pubkey_create(A, compressed),
 	{ok, B2} = libsecp256k1:ec_pubkey_create(A, uncompressed),
 	{ok, C} = libsecp256k1:ec_pubkey_decompress(B),
@@ -25,18 +25,18 @@ create_keys() ->
 	?assertEqual(ok, libsecp256k1:ec_pubkey_verify(C)).
 
 invalid_keys() ->
-	A = crypto:rand_bytes(16),
+	A = crypto:strong_rand_bytes(16),
 	?assertMatch({error, _Msg}, libsecp256k1:ec_pubkey_create(A, compressed)),
 	?assertMatch({error, _Msg}, libsecp256k1:ec_pubkey_create(A, invalidflag)).
 
 import_export() ->
-	A = crypto:rand_bytes(32),
+	A = crypto:strong_rand_bytes(32),
 	{ok, B} = libsecp256k1:ec_privkey_export(A, compressed),
 	{ok, C} = libsecp256k1:ec_privkey_import(B),
 	?assertEqual(A, C).
 
 tweaks() ->
-	<<A:256/bitstring, Tweak:256/bitstring>> = crypto:rand_bytes(64),
+	<<A:256/bitstring, Tweak:256/bitstring>> = crypto:strong_rand_bytes(64),
 	{ok, Pubkey} = libsecp256k1:ec_pubkey_create(A, compressed),
 	{ok, A2} = libsecp256k1:ec_privkey_tweak_add(A, Tweak),
 	{ok, A3} = libsecp256k1:ec_privkey_tweak_mul(A, Tweak),
@@ -49,28 +49,28 @@ tweaks() ->
 
 signing() ->
 	Msg = <<"This is a secret message...">>,
-	A = crypto:rand_bytes(32),
+	A = crypto:strong_rand_bytes(32),
 	{ok, Pubkey} = libsecp256k1:ec_pubkey_create(A, compressed),
 	{ok, Signature} = libsecp256k1:ecdsa_sign(Msg, A, default, <<>>),
 	?assertEqual(ok, libsecp256k1:ecdsa_verify(Msg, Signature, Pubkey)).
 
 blank_msg() ->
 	Msg = <<>>,
-	A = crypto:rand_bytes(32),
+	A = crypto:strong_rand_bytes(32),
 	{ok, Pubkey} = libsecp256k1:ec_pubkey_create(A, compressed),
 	{ok, Signature} = libsecp256k1:ecdsa_sign(Msg, A, default, <<>>),
 	?assertEqual(ok, libsecp256k1:ecdsa_verify(Msg, Signature, Pubkey)).
 
 compact_signing() ->
 	Msg = <<"This is a very secret compact message...">>,
-	A = crypto:rand_bytes(32),
+	A = crypto:strong_rand_bytes(32),
 	{ok, Pubkey} = libsecp256k1:ec_pubkey_create(A, uncompressed),
 	{ok, Signature, RecoveryID} = libsecp256k1:ecdsa_sign_compact(Msg, A, default, <<>>),
 	{ok, RecoveredKey} = libsecp256k1:ecdsa_recover_compact(Msg, Signature, uncompressed, RecoveryID),
 	?assertEqual(Pubkey, RecoveredKey).
 
 sha256() ->
-	A = crypto:rand_bytes(64),
+	A = crypto:strong_rand_bytes(64),
 	DoubleHashed = crypto:hash(sha256, crypto:hash(sha256, A)),
 	?assertEqual(DoubleHashed, libsecp256k1:sha256(libsecp256k1:sha256(A))),
 	?assertEqual(DoubleHashed, libsecp256k1:dsha256(A)).

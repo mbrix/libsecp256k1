@@ -7,9 +7,13 @@
 
 #include "libsecp256k1-config.h"
 #include "secp256k1.c"
+#include "include/secp256k1.h"
 #include "testrand_impl.h"
 #include "include/secp256k1_recovery.h"
 
+// Key export
+#include "contrib/lax_der_parsing.c"
+#include "contrib/lax_der_privatekey_parsing.c"
 
 // Prototypes
 
@@ -234,7 +238,8 @@ ec_pubkey_decompress(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 		return error_result(env, "Public key parse error");
 	}
 
-	if (secp256k1_ec_pubkey_serialize(ctx, decompressedkey, &decompressedkeylen, &pubkeyt, 0) != 1) {
+	if (secp256k1_ec_pubkey_serialize(ctx, decompressedkey, &decompressedkeylen,
+	            &pubkeyt, SECP256K1_EC_UNCOMPRESSED) != 1) {
 		return error_result(env, "Public key decompression error");
 	}
 	
@@ -284,7 +289,8 @@ ec_privkey_export(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 		return error_result(env, "Compression flag invalid");
 	}
 
-	result = secp256k1_ec_privkey_export(ctx, exported_seckey, &seckey_len,
+	result = ec_privkey_export_der(ctx,
+	        exported_seckey, &seckey_len,
 			privkey.data, compressed);
 	if (result == 0) {
 		return error_result(env, "privkey export returned 0");
@@ -308,7 +314,7 @@ ec_privkey_import(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
 	privkey_buf = enif_make_new_binary(env, 32, &r);
-    result = secp256k1_ec_privkey_import(ctx, privkey_buf, exportedkey.data, exportedkey.size);
+    result = ec_privkey_import_der(ctx, privkey_buf, exportedkey.data, exportedkey.size);
     if (result == 0) {
 		return error_result(env, "privkey import returned 0");
 	}
@@ -381,9 +387,9 @@ ec_pubkey_tweak_add(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
 int check_compressed(size_t Size) {
 	if (Size == 33) {
-		return 1;
+		return SECP256K1_EC_COMPRESSED;
 	}
-	return 0;
+		return SECP256K1_EC_UNCOMPRESSED;
 }
 
 static ERL_NIF_TERM
@@ -460,6 +466,7 @@ ecdsa_sign(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	int result;
     secp256k1_ecdsa_signature signature;
 	unsigned char* finishedsig;
+	unsigned char intermediatesig[74];
 	size_t siglen = 74;
 
 	secp256k1_nonce_function noncefp;
@@ -481,12 +488,15 @@ ecdsa_sign(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	if (!result) {
 		return error_result(env, "ecdsa_sign returned 0");
 	}
-	
-    finishedsig = enif_make_new_binary(env, siglen, &r); 
-	if (secp256k1_ecdsa_signature_serialize_der(ctx, finishedsig, &siglen, &signature) != 1) {
+
+    // DER serialization may return a signature under buffer size
+    // need to delay nif binary allocation
+	if (secp256k1_ecdsa_signature_serialize_der(ctx, &intermediatesig, &siglen, &signature) != 1) {
 		return error_result(env, "ecdsa_signature_serialize returned 0");
 	}
-
+    CHECK(secp256k1_ecdsa_signature_parse_der(ctx, &signature, &intermediatesig, siglen) == 1);
+    finishedsig = enif_make_new_binary(env, siglen, &r); 
+    memcpy(finishedsig, intermediatesig, siglen);
 	return ok_result(env, &r);
 
 }
@@ -595,7 +605,7 @@ ecdsa_recover_compact(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 		return error_result(env, "Compression flag invalid");
 	}
 
-	if (compressed) {
+	if (compressed == SECP256K1_EC_COMPRESSED) {
 		pubkeylen = 33;
 	} else {
 		pubkeylen = 65;
@@ -604,7 +614,6 @@ ecdsa_recover_compact(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 	if (!get_recid(env, argv[3], &recid)) {
 		return error_result(env, "Recovery id invalid 0-3");
 	}
-	
 	result = secp256k1_ecdsa_recoverable_signature_parse_compact(ctx, &signature, csignature.data, recid);
 
 	if (!result) {
@@ -651,7 +660,7 @@ int get_compressed_flag(ErlNifEnv* env, ERL_NIF_TERM arg, int* compressed, size_
 		return 1;
 	} else if (strcmp(compressed_atom, "uncompressed") == 0) {
 		*pubkeylen = 65;
-		*compressed = 0;
+		*compressed = SECP256K1_EC_UNCOMPRESSED;
 		return 1;
 	}
 

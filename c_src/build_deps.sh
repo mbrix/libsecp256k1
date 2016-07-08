@@ -14,6 +14,7 @@ case "$1" in
 
     (test -d secp256k1 || git clone https://github.com/bitcoin/secp256k1)
 
-	(cd secp256k1 && git reset --hard 7450ef171db18361962ce1cabc5f3f233648789b &&  ./autogen.sh && ./configure --enable-module-recovery && make)
+    (cd secp256k1 && git reset --hard 5a91bd768faaa974e00301e662fd8f2aa75a122a &&  ./autogen.sh && ./configure --enable-module-recovery && make)
+	#(cd secp256k1 &&  ./autogen.sh && ./configure --enable-module-recovery && make)
     ;;
 esac
